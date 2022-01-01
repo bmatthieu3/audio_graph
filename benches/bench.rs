@@ -1,28 +1,24 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use audio_graph::{Node, Watcher, Audiograph};
-use audio_graph::node::{Process, Params};
+use audio_graph::node::Process;
 
-use audio_graph::node::{SineWaveParams, SineWave, Mixer};
+use audio_graph::node::{SineWave, Mixer};
 
 fn criterion_benchmark(c: &mut Criterion) {
     let sw1 = Node::new(
         "sw1",
-        SineWaveParams { ampl: 0.1, freq: 2500.0 },
-        SineWave::new()
+        SineWave::new(0.1, 2500.0)
     );
     let sw2 = Node::new(
         "sw2",
-        SineWaveParams { ampl: 0.02, freq: 9534.0 },
-        SineWave::new()
+        SineWave::new(0.02, 9534.0)
     );
     let sw3 = Node::new(
         "sw3",
-        SineWaveParams { ampl: 0.01, freq: 15534.0 },
-        SineWave::new()
+        SineWave::new(0.01, 15534.0)
     );
     let mut mixer = Node::new(
         "mixer",
-        (),
         Mixer
     )
     .add_input(sw1)

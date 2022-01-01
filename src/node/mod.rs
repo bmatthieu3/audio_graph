@@ -18,6 +18,14 @@ pub type Nodes<S, const N: usize> = HashMap<&'static str, Arc<Mutex<dyn NodeTrai
 
 use crate::Event;
 
+fn vec_to_slice<S, const N: usize>(input: Vec<S>) -> Box<[S; N]> {
+    let input = input
+        .into_boxed_slice();
+    unsafe { Box::from_raw(
+        Box::into_raw(input) as *mut [S; N]
+    )}
+}
+
 use crate::sampling::SampleIdx;
 impl<S, F, const N: usize> Node<S, F, N>
 where
@@ -56,46 +64,45 @@ where
 
         if num_parents > 0 {
             if multithreading {
-                let mut threads = vec![];
+                let (tx, rx) = std::sync::mpsc::channel();
 
-                for p in self.parents.values_mut() {
-                    let p1 = p.clone();
+                for parent in self.parents.values_mut() {
+                    let parent = parent.clone();
+                    let tx = tx.clone();
+                    std::thread::spawn(move || {
+                        // Create a buffer on the thread
+                        let mut buffer = vec_to_slice(vec![S::zero_value(); N]);
 
-                    threads.push(std::thread::spawn(move || {
-                        let mut b = {
-                            let b = vec![S::zero_value(); N]
-                                .into_boxed_slice();
+                        // Stream into it
+                        parent.lock()
+                            .unwrap()
+                            .stream_into(&mut buffer, true);
 
-                            unsafe { Box::from_raw(Box::into_raw(b) as *mut [S; N]) }
-                        };
-                        // process this with other cores
-                        p1.lock().unwrap().stream_into(&mut b, true);
-                        b
-                    }));
+                        // Send the processed data to the calling thread (receiver)
+                        tx.send(buffer)
+                            .unwrap();
+                    });
                 }
+                drop(tx);
 
-                for thread in threads {
-                    // Wait for the thread to finish. Returns a result.
-                    let r = thread.join().unwrap();
-                    data.push(r);
+                while let Ok(buffer) = rx.recv() {
+                    data.push(buffer);
                 }
             } else {
-                let mut b = {
-                    let b = vec![S::zero_value(); N]
-                        .into_boxed_slice();
+                let mut buffer = vec_to_slice(vec![S::zero_value(); N]);
 
-                    unsafe { Box::from_raw(Box::into_raw(b) as *mut [S; N]) }
-                };
+                for parent in self.parents.values_mut() {
+                    parent.lock()
+                        .unwrap()
+                        .stream_into(&mut buffer, false);
 
-                for p in self.parents.values_mut() {
-                    p.lock().unwrap().stream_into(&mut b, false);
-                    data.push(b.clone());
+                    data.push(buffer.clone());
                 }
             }
         }
 
+        let mut input = Vec::with_capacity(data.len());
         for idx_sample in 0..N {
-            let mut input = vec![];
             for buf in &data {
                 input.push(buf[idx_sample]);
             }
@@ -106,6 +113,8 @@ where
             }
 
             buf[idx_sample] = self.f.process_next_value(&input);
+
+            input.clear();
         }
     }
 
