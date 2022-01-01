@@ -1,15 +1,14 @@
-use crate::node::{Process, Params, Node, NodeTrait};
+use crate::node::{Process, Node, NodeTrait};
 
 use std::collections::HashMap;
 
 use crate::node::Nodes;
-pub struct Audiograph<'a, P, S, F, const N: usize>
+pub struct Audiograph<'a, S, F, const N: usize>
 where
-    P: Params + Clone + 'static,
     S: rodio::Sample + Send + 'static,
-    F: Process<S, P = P> + Clone + 'static
+    F: Process<S> + Clone + 'static
 {
-    watcher: Watcher<'a, P, S, F, N>,
+    watcher: Watcher<'a, S, F, N>,
     sample_rate: SamplingRate,
     nodes: Nodes<S, N>,
 }
@@ -17,13 +16,12 @@ where
 use std::sync::{Mutex, Arc};
 use crate::Event;
 use crate::SamplingRate;
-impl<'a, P, S, F, const N: usize> Audiograph<'a, P, S, F, N>
-where 
-    P: Params + Clone + 'static,
+impl<'a, S, F, const N: usize> Audiograph<'a, S, F, N>
+where
     S: rodio::Sample + Send + 'static,
-    F: Process<S, P = P> + Clone + 'static
+    F: Process<S> + Clone + 'static
 {
-    pub fn new<T: Into<SamplingRate>>(sample_rate: T, watcher: Watcher<'a, P, S, F, N>) -> Self {
+    pub fn new<T: Into<SamplingRate>>(sample_rate: T, watcher: Watcher<'a, S, F, N>) -> Self {
         let sample_rate = sample_rate.into();
 
         let mut nodes = HashMap::new();
@@ -40,10 +38,9 @@ where
     //
     // When streaming samples, it will produce samples from this watched node
     // It is supposed to watch a node from the same graph => S is preserved
-    pub fn set_watcher<'b, P2, F2>(self, watcher: Watcher<'b, P2, S, F2, N>) -> Audiograph<'b, P2, S, F2, N>
+    pub fn set_watcher<'b, F2>(self, watcher: Watcher<'b, S, F2, N>) -> Audiograph<'b, S, F2, N>
     where
-        P2: Params + Clone + 'static,
-        F2: Process<S, P = P2> + Clone + 'static
+        F2: Process<S> + Clone + 'static
     {
         let mut nodes = HashMap::new();
         watcher.collect_nodes(&mut nodes);
@@ -61,17 +58,17 @@ where
         self.nodes.get_mut(name)
     }
 
-    pub fn register_event<P2, F2>(&mut self, name: &'static str, event: Event<P2>) -> bool
+    pub fn register_event<F2>(&mut self, name: &'static str, event: Event<S, F2>) -> bool
     where
-        P2: Params + Clone + 'static,
-        F2: Process<S, P = P2> + Clone + 'static
+        F2: Process<S> + Clone + 'static
     {
         if let Some(node) = self.search_for(name) {
             let mut node = node.lock().unwrap();
 
             if let Some(node) = node.as_mut_any()
-                .downcast_mut::<Node<P2, S, F2, N>>() {
-                    node.register_event(event);
+                .downcast_mut::<Node<S, F2, N>>() {
+
+                node.register_event(event);
 
                 true
             } else {
@@ -92,23 +89,21 @@ where
     }
 }
 
-pub struct Watcher<'a, P, S, F, const N: usize>
+pub struct Watcher<'a, S, F, const N: usize>
 where
-    P: Params + Clone + 'static,
     S: rodio::Sample + Send + 'static,
-    F: Process<S, P = P> + Clone + 'static,
+    F: Process<S> + Clone + 'static,
 {
-    node: &'a mut Node<P, S, F, N>
+    node: &'a mut Node<S, F, N>
 }
 
 
-impl<'a, S, P, F, const N: usize> Watcher<'a, P, S, F, N>
+impl<'a, S, F, const N: usize> Watcher<'a, S, F, N>
 where
-    P: Params + Clone + 'static,
     S: rodio::Sample + Send + 'static,
-    F: Process<S, P = P> + Clone + 'static,
+    F: Process<S> + Clone + 'static,
 {
-    pub fn on(node: &'a mut Node<P, S, F, N>) -> Self {
+    pub fn on(node: &'a mut Node<S, F, N>) -> Self {
         Self {
             node
         }
@@ -116,34 +111,31 @@ where
 }
 
 use std::ops::{DerefMut, Deref};
-impl<'a, P, S, F, const N: usize> Deref for Watcher<'a, P, S, F, N>
+impl<'a, S, F, const N: usize> Deref for Watcher<'a, S, F, N>
 where
-    P: Params + Clone + 'static,
     S: rodio::Sample + Send + 'static,
-    F: Process<S, P = P> + Clone + 'static,
+    F: Process<S> + Clone + 'static,
 {
-    type Target = Node<P, S, F, N>;
+    type Target = Node<S, F, N>;
 
     fn deref(&self) -> &Self::Target {
         &self.node
     }
 }
-impl<'a, P, S, F, const N: usize> DerefMut for Watcher<'a, P, S, F, N>
+impl<'a, S, F, const N: usize> DerefMut for Watcher<'a, S, F, N>
 where
-    P: Params + Clone + 'static,
     S: rodio::Sample + Send + 'static,
-    F: Process<S, P = P> + Clone,
+    F: Process<S> + Clone,
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.node
     }
 }
 
-impl<'a, P, S, F, const N: usize> Iterator for Audiograph<'a, P, S, F, N>
+impl<'a, S, F, const N: usize> Iterator for Audiograph<'a, S, F, N>
 where
-    P: Params + Clone + 'static,
     S: rodio::Sample + Send + 'static,
-    F: Process<S, P = P> + Clone,
+    F: Process<S> + Clone,
 {
     type Item = S;
 

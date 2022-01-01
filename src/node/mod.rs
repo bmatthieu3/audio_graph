@@ -1,18 +1,16 @@
 use std::sync::{Arc, Mutex};
 use std::marker::Send;
 use std::collections::HashMap;
-pub struct Node<P, S, F, const N: usize>
+pub struct Node<S, F, const N: usize>
 where
-    P: Params + Clone + 'static,
     S: rodio::Sample + Send + 'static,
-    F: Process<S, P = P> + Clone,
+    F: Process<S> + Clone + 'static,
 {
-    f: F, // process task
+    pub f: F, // process task
     name: &'static str,
-    pub params: P,
     on: bool, // process on
 
-    events: Vec< Event< P > >,
+    events: Vec< Event< S, F > >,
 
     parents: HashMap<&'static str, Arc<Mutex< dyn NodeTrait<S, N> >>>,
 }
@@ -21,27 +19,24 @@ pub type Nodes<S, const N: usize> = HashMap<&'static str, Arc<Mutex<dyn NodeTrai
 use crate::Event;
 
 use crate::sampling::SampleIdx;
-impl<P, S, F, const N: usize> Node<P, S, F, N>
+impl<S, F, const N: usize> Node<S, F, N>
 where
-    P: Params + Clone + 'static,
     S: rodio::Sample + Send + 'static,
-    F: Process<S, P = P> + Clone + 'static,
+    F: Process<S> + Clone + 'static,
 {
-    pub fn new(name: &'static str, p: P, f: F) -> Self {
+    pub fn new(name: &'static str, f: F) -> Self {
         Self {
             f: f,
             on: true,
-            params: p,
             name: name,
             parents: HashMap::new(),
             events: vec![],
         }
     }
 
-    pub fn add_input<P2, F2>(mut self, input: Node<P2, S, F2, N>) -> Self
+    pub fn add_input<F2>(mut self, input: Node<S, F2, N>) -> Self
     where
-        P2: Params + Clone + 'static,
-        F2: Process<S, P = P2> + Clone + 'static,
+        F2: Process<S> + Clone + 'static,
     {
         self.parents.insert(input.name, Arc::new(Mutex::new(input)));
         self
@@ -110,13 +105,13 @@ where
                 event.play_on(self);
             }
 
-            buf[idx_sample] = self.f.process_next_value(&self.params, &input);
+            buf[idx_sample] = self.f.process_next_value(&input);
         }
     }
 
     // Register the event in the node or its children
     // return true if a node has been found
-    pub fn register_event(&mut self, event: Event<P>) {
+    pub fn register_event(&mut self, event: Event<S, F>) {
         // Add the event to the current node
         self.events.push(event);
         // sort by sample idx so that we can only execute the first one
@@ -135,11 +130,10 @@ where
     fn as_mut_any(&mut self) -> &mut dyn Any;
 }
 
-impl<P, S, F, const N: usize> NodeTrait<S, N> for Node<P, S, F, N>
-where
-    P: Params + Clone + Send + 'static,
+impl<S, F, const N: usize> NodeTrait<S, N> for Node<S, F, N>
+where 
     S: rodio::Sample + Send + 'static,
-    F: Process<S, P = P> + Clone + 'static
+    F: Process<S> + Clone
 {
     fn stream_into(&mut self, buf: &mut Box<[S; N]>, multithreading: bool) {
         self.stream_into(buf, multithreading);
@@ -154,11 +148,10 @@ where
     }
 }
 
-impl<P, S, F, const N: usize> Iterator for Node<P, S, F, N>
+impl<S, F, const N: usize> Iterator for Node<S, F, N>
 where 
-    P: Params + Clone + Send,
     S: rodio::Sample + Send + 'static,
-    F: Process<S, P = P> + Clone
+    F: Process<S> + Clone
 {
     type Item = S;
 
@@ -169,7 +162,7 @@ where
             .collect();
 
         if let Some(values) = in_values {
-            Some(self.f.process_next_value(&self.params, &values[..]))
+            Some(self.f.process_next_value(&values[..]))
         } else {
             None
         }
@@ -180,14 +173,10 @@ pub trait Process<S>: Send
 where 
     S: rodio::Sample + Send
 {
-    type P: Params;
-    fn process_next_value(&mut self, params: &Self::P, inputs: &[S]) -> S;
+    fn process_next_value(&mut self, inputs: &[S]) -> S;
 }
 
-pub trait Params: Send {}
-impl Params for () {}
-
 pub mod sinewave;
-pub use sinewave::{SineWave, SineWaveParams};
+pub use sinewave::SineWave;
 pub mod mixer;
 pub use mixer::{Mixer};

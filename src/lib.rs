@@ -30,8 +30,7 @@ mod tests {
         
         let mut sw1 = Node::new(
             "sinewave",
-            SineWaveParams { ampl: 0.1, freq: 2500.0 },
-            SineWave::new()
+            SineWave::new(0.1, 2500.0)
         );
 
         let (_stream, stream_handle) = OutputStream::try_default().unwrap();
@@ -61,17 +60,14 @@ mod tests {
     fn mixer_audio_graph() {
         let sw1 = Node::new(
             "sw1",
-            SineWaveParams { ampl: 0.1, freq: 2500.0 },
-            SineWave::new()
+            SineWave::new(0.1, 2500.0)
         );
         let sw2 = Node::new(
             "sw2",
-            SineWaveParams { ampl: 0.2, freq: 9534.0 },
-            SineWave::new()
+            SineWave::new(0., 9534.0)
         );
         let mut mixer = Node::new(
             "mixer",
-            (),
             Mixer
         )
         .add_input(sw1)
@@ -97,17 +93,14 @@ mod tests {
     fn event() {
         let sw1 = Node::new(
             "sw1",
-            SineWaveParams { ampl: 0.1, freq: 2500.0 },
-            SineWave::new()
+            SineWave::new(0.1, 2500.0)
         );
         let sw2 = Node::new(
             "sw2",
-            SineWaveParams { ampl: 0., freq: 9534.0 },
-            SineWave::new()
+            SineWave::new(0., 9534.0)
         );
         let mut mixer = Node::new(
             "mixer",
-            (),
             Mixer
         )
         .add_input(sw1)
@@ -130,15 +123,15 @@ mod tests {
         for i in 0..5 {
             // create the event on a node
             let event = Event::new(
-                |params: &mut SineWaveParams| {
-                    params.freq *= 1.1;
+                |f: &mut SineWave| {
+                    f.params.freq *= 1.1;
                 },
                 std::time::Duration::new(i, 0),
                 audio.get_sampling_rate()
             );
-            assert!(audio.register_event::<_, SineWave>("sw1", event.clone()));
-            assert!(audio.register_event::<_, SineWave>("sw2", event.clone()));
-            assert!(!audio.register_event::<_, SineWave>("sw3", event));
+            assert!(audio.register_event("sw1", event.clone()));
+            assert!(audio.register_event("sw2", event.clone()));
+            assert!(!audio.register_event("sw3", event));
         }
 
         audio.stream_into(&mut buf, true);
@@ -150,17 +143,14 @@ mod tests {
     fn multithreading() {        
         let sw1 = Node::new(
             "sw1",
-            SineWaveParams { ampl: 0.1, freq: 2500.0 },
-            SineWave::new()
+            SineWave::new(0.1, 2500.0)
         );
         let sw2 = Node::new(
             "sw2",
-            SineWaveParams { ampl: 0.02, freq: 9534.0 },
-            SineWave::new()
+            SineWave::new(0.02, 9534.0)
         );
         let mut mixer = Node::new(
             "mixer",
-            (),
             Mixer
         )
         .add_input(sw1)

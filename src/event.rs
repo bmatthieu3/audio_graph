@@ -1,41 +1,40 @@
 
-use crate::node::{Process, Params};
+use crate::node::Process;
 use crate::Node;
 use crate::sampling::SampleIdx;
 use crate::SamplingRate;
 
 #[derive(Clone)]
-pub struct Event<P>
+pub struct Event<S, F>
 where
-    P: Params + Clone + 'static,
+    S: rodio::Sample + Send + 'static,
+    F: Process<S> + Clone + 'static,
 {
     sample: SampleIdx,
-    fu: fn(&mut P) -> (),
+    fu: fn(&mut F) -> (),
 
-    p: std::marker::PhantomData<P>,
+    s: std::marker::PhantomData<S>,
+    f: std::marker::PhantomData<F>,
 }
 
-impl<P> Event<P>
+impl<S, F> Event<S, F>
 where
-    P: Params + Clone + 'static
+    S: rodio::Sample + Send + 'static,
+    F: Process<S> + Clone + 'static,
 {
-    pub fn new(fu: fn(&mut P) -> (), time: std::time::Duration, sample_rate: SamplingRate) -> Self {
+    pub fn new(fu: fn(&mut F) -> (), time: std::time::Duration, sample_rate: SamplingRate) -> Self {
         let idx_sample = sample_rate.from_time(time);
         
         Self {
             sample: idx_sample,
             fu,
-            p: std::marker::PhantomData,
+            s: std::marker::PhantomData,
+            f: std::marker::PhantomData,
         }
     }
 
-    pub fn play_on<S, F, const N: usize>(self, node: &mut Node<P, S, F, N>)
-    where
-        P: Params + Clone + 'static,
-        S: rodio::Sample + Send + 'static,
-        F: Process<S, P = P> + Clone,
-    {
-        (self.fu)(&mut node.params);
+    pub fn play_on<const N: usize>(self, node: &mut Node<S, F, N>) {
+        (self.fu)(&mut node.f);
     }
 
     pub fn get_sample_idx(&self) -> SampleIdx {
@@ -43,23 +42,26 @@ where
     }
 }
 
-impl<P> PartialEq for Event<P> 
+impl<S, F> PartialEq for Event<S, F>
 where
-    P: Params + Clone + 'static,
+    S: rodio::Sample + Send + 'static,
+    F: Process<S> + Clone + 'static,
 {
     fn eq(&self, other: &Self) -> bool {
         self.sample == other.sample
     }
 }
 
-impl<P> Eq for Event<P> 
+impl<S, F> Eq for Event<S, F>
 where
-    P: Params + Clone + 'static,
+    S: rodio::Sample + Send + 'static,
+    F: Process<S> + Clone + 'static,
 { }
 
-impl<P> PartialOrd for Event<P> 
+impl<S, F> PartialOrd for Event<S, F> 
 where
-    P: Params + Clone + 'static,
+    S: rodio::Sample + Send + 'static,
+    F: Process<S> + Clone + 'static,
 {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
@@ -69,9 +71,10 @@ where
 // Order event by decreasing time so that
 // nearest occuring events are pushed to the back of the stack
 use std::cmp::Ordering;
-impl<P> Ord for Event<P> 
+impl<S, F> Ord for Event<S, F> 
 where
-    P: Params + Clone + 'static,
+    S: rodio::Sample + Send + 'static,
+    F: Process<S> + Clone + 'static,
 {
     fn cmp(&self, other: &Self) -> Ordering {
         other.sample.cmp(&self.sample)
