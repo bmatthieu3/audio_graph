@@ -1,7 +1,9 @@
+#[derive(Clone)]
 pub struct SineWave {
     step: usize,
 }
 
+#[derive(Clone)]
 pub struct SineWaveParams {
     pub ampl: f32,
     pub freq: f32,

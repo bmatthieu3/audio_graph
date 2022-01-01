@@ -2,44 +2,7 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use audio_graph::{Node, Watcher, Audiograph};
 use audio_graph::node::{Process, Params};
 
-struct SineWave {
-    step: usize,
-}
-
-struct SineWaveParams {
-    ampl: f32,
-    freq: f32,
-}
-
-impl Params for SineWaveParams {}
-
-impl SineWave {
-    fn new() -> Self {
-        let step = 0;
-        Self {
-            step,
-        }
-    }
-}
-
-impl Process<f32> for SineWave {
-    type P = SineWaveParams;
-
-    fn process_next_value(&mut self, params: &Self::P, _: &[f32]) -> f32 {
-        self.step += 1;
-        ((self.step as f32) / 44100.0 * params.freq).sin() * params.ampl
-    }
-}
-
-/* Mixer */
-struct Mixer;
-impl Process<f32> for Mixer {
-    type P = ();
-
-    fn process_next_value(&mut self, _: &Self::P, inputs: &[f32]) -> f32 {
-        inputs.iter().sum::<f32>()
-    }
-}
+use audio_graph::node::{SineWaveParams, SineWave, Mixer};
 
 fn criterion_benchmark(c: &mut Criterion) {
     let sw1 = Node::new(

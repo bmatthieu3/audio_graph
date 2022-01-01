@@ -1,4 +1,5 @@
 /* Mixer */
+#[derive(Clone)]
 pub struct Mixer;
 use super::Process;
 impl Process<f32> for Mixer {

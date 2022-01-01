@@ -10,22 +10,28 @@
 pub mod node;
 pub use node::Node;
 
+pub mod sampling;
+pub use sampling::{SamplingRate};
+
 pub mod graph;
 pub use graph::Audiograph;
 pub use graph::Watcher;
 
+pub mod event;
+pub use event::Event;
+
 #[cfg(test)]
 mod tests {
     use rodio::{OutputStream, Sink};
-    use crate::{Audiograph, Watcher, Node};
-
+    use crate::{Audiograph, Watcher, Node, Event};
+    use crate::node::*;
     #[test]
     fn simple_sinewave_graph() {
         
         let mut sw1 = Node::new(
             "sinewave",
-            crate::node::SineWaveParams { ampl: 0.1, freq: 2500.0 },
-            crate::node::SineWave::new()
+            SineWaveParams { ampl: 0.1, freq: 2500.0 },
+            SineWave::new()
         );
 
         let (_stream, stream_handle) = OutputStream::try_default().unwrap();
@@ -53,21 +59,20 @@ mod tests {
 
     #[test]
     fn mixer_audio_graph() {
-        
         let sw1 = Node::new(
             "sw1",
-            crate::node::SineWaveParams { ampl: 0.1, freq: 2500.0 },
-            crate::node::SineWave::new()
+            SineWaveParams { ampl: 0.1, freq: 2500.0 },
+            SineWave::new()
         );
         let sw2 = Node::new(
             "sw2",
-            crate::node::SineWaveParams { ampl: 0.02, freq: 9534.0 },
-            crate::node::SineWave::new()
+            SineWaveParams { ampl: 0.2, freq: 9534.0 },
+            SineWave::new()
         );
         let mut mixer = Node::new(
             "mixer",
             (),
-            crate::node::Mixer
+            Mixer
         )
         .add_input(sw1)
         .add_input(sw2);
@@ -89,21 +94,74 @@ mod tests {
     }
 
     #[test]
-    fn multithreading() {        
+    fn event() {
         let sw1 = Node::new(
             "sw1",
-            crate::node::SineWaveParams { ampl: 0.1, freq: 2500.0 },
-            crate::node::SineWave::new()
+            SineWaveParams { ampl: 0.1, freq: 2500.0 },
+            SineWave::new()
         );
         let sw2 = Node::new(
             "sw2",
-            crate::node::SineWaveParams { ampl: 0.02, freq: 9534.0 },
-            crate::node::SineWave::new()
+            SineWaveParams { ampl: 0., freq: 9534.0 },
+            SineWave::new()
         );
         let mut mixer = Node::new(
             "mixer",
             (),
-            crate::node::Mixer
+            Mixer
+        )
+        .add_input(sw1)
+        .add_input(sw2);
+
+        let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+        let sink = Sink::try_new(&stream_handle).unwrap();
+
+        const DURATION_SECS: f32 = 5.0;
+        const NUM_SAMPLES: usize = (DURATION_SECS * 44100.0) as usize;
+
+        let buf = vec![0.0; NUM_SAMPLES]
+            .into_boxed_slice();
+        let mut buf = unsafe { Box::from_raw(Box::into_raw(buf) as *mut [f32; NUM_SAMPLES]) };
+        let w = Watcher::on(&mut mixer);
+
+        let sampling_rate = 44100.0;
+        let mut audio = Audiograph::new(sampling_rate, w);
+
+        for i in 0..5 {
+            // create the event on a node
+            let event = Event::new(
+                |params: &mut SineWaveParams| {
+                    params.freq *= 1.1;
+                },
+                std::time::Duration::new(i, 0),
+                audio.get_sampling_rate()
+            );
+            assert!(audio.register_event::<_, SineWave>("sw1", event.clone()));
+            assert!(audio.register_event::<_, SineWave>("sw2", event.clone()));
+            assert!(!audio.register_event::<_, SineWave>("sw3", event));
+        }
+
+        audio.stream_into(&mut buf, true);
+
+        play_sound(&sink, buf.to_vec());
+    }
+
+    #[test]
+    fn multithreading() {        
+        let sw1 = Node::new(
+            "sw1",
+            SineWaveParams { ampl: 0.1, freq: 2500.0 },
+            SineWave::new()
+        );
+        let sw2 = Node::new(
+            "sw2",
+            SineWaveParams { ampl: 0.02, freq: 9534.0 },
+            SineWave::new()
+        );
+        let mut mixer = Node::new(
+            "mixer",
+            (),
+            Mixer
         )
         .add_input(sw1)
         .add_input(sw2);
