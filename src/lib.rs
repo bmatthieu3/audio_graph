@@ -140,6 +140,54 @@ mod tests {
     }
 
     #[test]
+    fn lfo_modulating_amplitude() {
+        let lfo = Node::new(
+            "lfo",
+            SineWave::new(1.0, 10.0)
+        );
+        let sw1 = Node::new(
+            "sw1",
+            SineWave::new(1.0, 1200.0)
+        );
+        let mut mult = Node::new(
+            "multiplier",
+            Multiplier
+        )
+        .add_input(lfo)
+        .add_input(sw1);
+
+        let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+        let sink = Sink::try_new(&stream_handle).unwrap();
+
+        const DURATION_SECS: f32 = 5.0;
+        const NUM_SAMPLES: usize = (DURATION_SECS * 44100.0) as usize;
+
+        let buf = vec![0.0; NUM_SAMPLES]
+            .into_boxed_slice();
+        let mut buf = unsafe { Box::from_raw(Box::into_raw(buf) as *mut [f32; NUM_SAMPLES]) };
+        let w = Watcher::on(&mut mult);
+
+        let sampling_rate = 44100.0;
+        let mut audio = Audiograph::new(sampling_rate, w);
+
+        for i in 0..5 {
+            // create the event on a node
+            let event = Event::new(
+                |f: &mut SineWave| {
+                    f.params.freq *= 1.1;
+                },
+                std::time::Duration::new(i, 0),
+                audio.get_sampling_rate()
+            );
+            assert!(audio.register_event("sw1", event.clone()));
+        }
+
+        audio.stream_into(&mut buf, true);
+
+        play_sound(&sink, buf.to_vec());
+    }
+
+    #[test]
     fn multithreading() {        
         let sw1 = Node::new(
             "sw1",

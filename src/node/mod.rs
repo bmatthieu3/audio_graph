@@ -189,3 +189,5 @@ pub mod sinewave;
 pub use sinewave::SineWave;
 pub mod mixer;
 pub use mixer::{Mixer};
+pub mod multiplier;
+pub use multiplier::Multiplier;
