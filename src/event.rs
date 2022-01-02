@@ -5,14 +5,14 @@ use crate::sampling::SampleIdx;
 use crate::SamplingRate;
 
 #[derive(Clone)]
-pub enum Event<S, F>
+pub enum Event<S, F, const N: usize>
 where
     S: rodio::Sample + Send + 'static,
     F: Process<S> + Clone + 'static,
 {
     UpdateParams {
         sample: SampleIdx,
-        fu: fn(&mut F) -> (),
+        fu: fn(&mut F, &mut Audiograph<S, F, N>) -> (),
 
         s: std::marker::PhantomData<S>,
         f: std::marker::PhantomData<F>,
@@ -30,7 +30,7 @@ where
     S: rodio::Sample + Send + 'static,
     F: Process<S> + Clone + 'static,
 {
-    pub fn update_params(fu: fn(&mut F) -> (), time: std::time::Duration, sample_rate: SamplingRate) -> Self {
+    pub fn update_params(fu: fn(&mut F, &mut Audiograph<S, F, N>) -> (), time: std::time::Duration, sample_rate: SamplingRate) -> Self {
         let idx_sample = sample_rate.from_time(time);
         
         Event::UpdateParams {
