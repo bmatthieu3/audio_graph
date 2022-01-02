@@ -18,12 +18,14 @@ pub type Nodes<S, const N: usize> = HashMap<&'static str, Arc<Mutex<dyn NodeTrai
 
 use crate::Event;
 
-fn vec_to_slice<S, const N: usize>(input: Vec<S>) -> Box<[S; N]> {
+// Utilitary method to convert an allocated array on the heap
+// to a sized boxed slice 
+unsafe fn vec_to_slice<S, const N: usize>(input: Vec<S>) -> Box<[S; N]> {
     let input = input
         .into_boxed_slice();
-    unsafe { Box::from_raw(
+    Box::from_raw(
         Box::into_raw(input) as *mut [S; N]
-    )}
+    )
 }
 
 use crate::sampling::SampleIdx;
@@ -71,7 +73,7 @@ where
                     let tx = tx.clone();
                     std::thread::spawn(move || {
                         // Create a buffer on the thread
-                        let mut buffer = vec_to_slice(vec![S::zero_value(); N]);
+                        let mut buffer = unsafe { vec_to_slice(vec![S::zero_value(); N]) };
 
                         // Stream into it
                         parent.lock()
@@ -89,7 +91,7 @@ where
                     data.push(buffer);
                 }
             } else {
-                let mut buffer = vec_to_slice(vec![S::zero_value(); N]);
+                let mut buffer = unsafe { vec_to_slice(vec![S::zero_value(); N]) };
 
                 for parent in self.parents.values_mut() {
                     parent.lock()
@@ -107,6 +109,7 @@ where
                 input.push(buf[idx_sample]);
             }
 
+            // As events is sorted by decreasing sample indices, we can only check the last event to be played
             while !self.events.is_empty() && self.events.last().unwrap().get_sample_idx() <= SampleIdx(idx_sample) {
                 let event = self.events.pop().unwrap();
                 event.play_on(self);
@@ -127,11 +130,12 @@ where
     pub fn register_event(&mut self, event: Event<S, F>) {
         // Add the event to the current node
         self.events.push(event);
-        // sort by sample idx so that we can only execute the first one
+        // sort by sample idx so that we can only execute the first one(s)
         self.events.sort();
     }
 }
 
+use std::collections::HashSet;
 // The Node trait responsible for retrieving
 use std::any::Any;
 pub trait NodeTrait<S, const N: usize>: Iterator<Item=S> + Send
@@ -140,6 +144,10 @@ where
 {
     fn stream_into(&mut self, buf: &mut Box<[S; N]>, multithreading: bool);
     fn collect_nodes(&self, nodes: &mut Nodes<S, N>);
+
+    fn delete_node(&mut self, name: &'static str, nodes_to_remove: &mut HashSet<&'static str>) -> bool;
+    fn delete_parents_hierarchy(&mut self, nodes_to_remove: &mut HashSet<&'static str>);
+
     fn as_mut_any(&mut self) -> &mut dyn Any;
 }
 
@@ -152,12 +160,54 @@ where
         self.stream_into(buf, multithreading);
     }
 
-    fn as_mut_any(&mut self) -> &mut dyn Any {
-        self
-    }
-
     fn collect_nodes(&self, nodes: &mut Nodes<S, N>) {
         self.collect_nodes(nodes);
+    }
+
+    fn delete_node(&mut self, name: &'static str, nodes_to_remove: &mut HashSet<&'static str>) -> bool {
+        if let Some(node) = self.parents.get(name) {
+            // Node found, we first remove all of its parents (by registering them in a set)
+            node.lock()
+                .unwrap()
+                .delete_parents_hierarchy(nodes_to_remove);
+
+            // Then we remove the node found
+            self.parents.remove(name);
+            // And tag it in the set as well
+            nodes_to_remove.insert(name);
+
+            true
+        } else {
+            // If not found, we loop over the parent hierarchy
+            for parent in self.parents.values_mut() {
+                if parent.lock()
+                    .unwrap()
+                    .delete_node(name, nodes_to_remove) {
+                    return true;
+                }
+            }
+
+            false
+        }
+    }
+
+    fn delete_parents_hierarchy(&mut self, nodes_to_remove: &mut HashSet<&'static str>) {
+        self.parents.retain(|name, parent| {
+            // Delete recursively the parents of the parent node
+            parent.lock()
+                .unwrap()
+                .delete_parents_hierarchy(nodes_to_remove);
+
+            // Then tag the parent to be removed
+            nodes_to_remove.insert(name);
+
+            // Then remove it in the hierarchy
+            false
+        });
+    }
+
+    fn as_mut_any(&mut self) -> &mut dyn Any {
+        self
     }
 }
 

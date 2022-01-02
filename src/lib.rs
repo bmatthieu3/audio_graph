@@ -63,7 +63,7 @@ mod tests {
         );
         let sw2 = Node::new(
             "sw2",
-            SineWave::new(0., 9534.0)
+            SineWave::new(0.1, 9534.0)
         );
         let mut mixer = Node::new(
             "mixer",
@@ -78,6 +78,36 @@ mod tests {
 
         let w = Watcher::on(&mut mixer);
         let mut audio = Audiograph::new(44100.0, w);
+        audio.stream_into(&mut buf, true);
+    }
+
+    #[test]
+    fn delete_node_from_audio_graph() {
+        let sw1 = Node::new(
+            "sw1",
+            SineWave::new(0.1, 2500.0)
+        );
+        let sw2 = Node::new(
+            "sw2",
+            SineWave::new(0.2, 9534.0)
+        );
+        let mut mixer = Node::new(
+            "mixer",
+            Mixer
+        )
+        .add_input(sw1)
+        .add_input(sw2);
+
+        let buf = vec![0.0; NUM_SAMPLES]
+            .into_boxed_slice();
+        let mut buf = unsafe { Box::from_raw(Box::into_raw(buf) as *mut [f32; NUM_SAMPLES]) };
+
+        let w = Watcher::on(&mut mixer);
+        let mut audio = Audiograph::new(44100.0, w);
+
+        assert!(audio.delete_node("sw1"));
+        assert!(audio.delete_node("sw2"));
+
         audio.stream_into(&mut buf, true);
     }
 

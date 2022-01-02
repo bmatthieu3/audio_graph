@@ -12,7 +12,7 @@ where
     sample_rate: SamplingRate,
     nodes: Nodes<S, N>,
 }
-
+use std::collections::HashSet;
 use std::sync::{Mutex, Arc};
 use crate::Event;
 use crate::SamplingRate;
@@ -77,6 +77,17 @@ where
         } else {
             false
         }
+    }
+
+    pub fn delete_node(&mut self, name: &'static str) -> bool {
+        let mut nodes_to_remove = HashSet::new();
+        let node_found = self.watcher.delete_node(name, &mut nodes_to_remove);
+
+        self.nodes.retain(|name, parent| {
+            !nodes_to_remove.contains(name)
+        });
+
+        node_found
     }
 
     // Stream the next N samples into a buffer of size N allocated on the heap
