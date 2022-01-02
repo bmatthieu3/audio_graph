@@ -10,7 +10,7 @@ where
     name: &'static str,
     pub on: bool, // process on
 
-    events: Vec< Event< S, F > >,
+    events: Vec< Event< S, F, N > >,
 
     parents: HashMap<&'static str, Arc<Mutex< dyn NodeTrait<S, N> >>>,
 }
@@ -44,7 +44,11 @@ where
         }
     }
 
-    pub fn add_input<F2>(mut self, input: Node<S, F2, N>) -> Self
+    pub fn get_name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn add_input<F2>(&mut self, input: Node<S, F2, N>) -> &mut Self
     where
         F2: Process<S> + Clone + 'static,
     {
@@ -127,7 +131,7 @@ where
 
     // Register the event in the node or its children
     // return true if a node has been found
-    pub fn register_event(&mut self, event: Event<S, F>) {
+    pub fn register_event(&mut self, event: Event<S, F, N>) {
         // Add the event to the current node
         self.events.push(event);
         // sort by sample idx so that we can only execute the first one(s)
@@ -245,3 +249,19 @@ pub mod mixer;
 pub use mixer::{Mixer};
 pub mod multiplier;
 pub use multiplier::Multiplier;
+
+#[derive(Clone)]
+pub struct Sentinel;
+impl<S> Process<S> for Sentinel
+where
+    S: rodio::Sample + Send + 'static,
+{
+    fn process_next_value(&mut self, inputs: &[S]) -> S {
+        if let Some(s) = inputs.first() {
+            *s
+        } else {
+            // The graph is empty => no sound for every sample
+            S::zero_value()
+        }
+    }
+}
