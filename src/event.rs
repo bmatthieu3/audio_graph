@@ -5,16 +5,24 @@ use crate::sampling::SampleIdx;
 use crate::SamplingRate;
 
 #[derive(Clone)]
-pub struct Event<S, F>
+pub enum Event<S, F>
 where
     S: rodio::Sample + Send + 'static,
     F: Process<S> + Clone + 'static,
 {
-    sample: SampleIdx,
-    fu: fn(&mut F) -> (),
+    UpdateParams {
+        sample: SampleIdx,
+        fu: fn(&mut F) -> (),
 
-    s: std::marker::PhantomData<S>,
-    f: std::marker::PhantomData<F>,
+        s: std::marker::PhantomData<S>,
+        f: std::marker::PhantomData<F>,
+    },
+    NoteOff {
+        sample: SampleIdx,
+    },
+    NoteOn {
+        sample: SampleIdx,
+    }
 }
 
 impl<S, F> Event<S, F>
@@ -22,10 +30,10 @@ where
     S: rodio::Sample + Send + 'static,
     F: Process<S> + Clone + 'static,
 {
-    pub fn new(fu: fn(&mut F) -> (), time: std::time::Duration, sample_rate: SamplingRate) -> Self {
+    pub fn update_params(fu: fn(&mut F) -> (), time: std::time::Duration, sample_rate: SamplingRate) -> Self {
         let idx_sample = sample_rate.from_time(time);
         
-        Self {
+        Event::UpdateParams {
             sample: idx_sample,
             fu,
             s: std::marker::PhantomData,
@@ -33,12 +41,44 @@ where
         }
     }
 
+    pub fn note_on(time: std::time::Duration, sample_rate: SamplingRate) -> Self {
+        let idx_sample = sample_rate.from_time(time);
+        
+        Event::NoteOn {
+            sample: idx_sample,
+        }
+    }
+
+    pub fn note_off(time: std::time::Duration, sample_rate: SamplingRate) -> Self {
+        let idx_sample = sample_rate.from_time(time);
+        
+        Event::NoteOff {
+            sample: idx_sample,
+        }
+    }
+
     pub fn play_on<const N: usize>(self, node: &mut Node<S, F, N>) {
-        (self.fu)(&mut node.f);
+        match self {
+            Event::UpdateParams {
+                fu,
+                ..
+            } => (fu)(&mut node.f),
+            Event::NoteOn { .. } => node.on = true,
+            Event::NoteOff { .. } => node.on = false,
+        }
     }
 
     pub fn get_sample_idx(&self) -> SampleIdx {
-        self.sample
+        match self {
+            Event::UpdateParams {
+                sample,
+                ..
+            } => {
+                *sample
+            },
+            Event::NoteOff { sample } => *sample,
+            Event::NoteOn { sample } => *sample
+        }
     }
 }
 
@@ -48,7 +88,7 @@ where
     F: Process<S> + Clone + 'static,
 {
     fn eq(&self, other: &Self) -> bool {
-        self.sample == other.sample
+        self.get_sample_idx() == other.get_sample_idx()
     }
 }
 
@@ -77,6 +117,6 @@ where
     F: Process<S> + Clone + 'static,
 {
     fn cmp(&self, other: &Self) -> Ordering {
-        other.sample.cmp(&self.sample)
+        other.get_sample_idx().cmp(&self.get_sample_idx())
     }
 }

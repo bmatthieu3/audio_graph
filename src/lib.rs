@@ -25,9 +25,13 @@ mod tests {
     use rodio::{OutputStream, Sink};
     use crate::{Audiograph, Watcher, Node, Event};
     use crate::node::*;
+
+    // Sample 
+    const DURATION_SECS: f32 = 5.0;
+    const NUM_SAMPLES: usize = (DURATION_SECS * 44100.0) as usize;
+
     #[test]
     fn simple_sinewave_graph() {
-        
         let mut sw1 = Node::new(
             "sinewave",
             SineWave::new(0.1, 2500.0)
@@ -36,15 +40,10 @@ mod tests {
         let (_stream, stream_handle) = OutputStream::try_default().unwrap();
         let sink = Sink::try_new(&stream_handle).unwrap();
 
-        const DURATION_SECS: f32 = 5.0;
-        const NUM_SAMPLES: usize = (DURATION_SECS * 44100.0) as usize;
-
         let mut buf = Box::new([0.0; NUM_SAMPLES]);
         let w = Watcher::on(&mut sw1);
         let mut audio = Audiograph::new(44100.0, w);
         audio.stream_into(&mut buf, true);
-
-        play_sound(&sink, buf.to_vec());
     }
 
     fn play_sound(sink: &Sink, buf: Vec<f32>) {
@@ -73,20 +72,13 @@ mod tests {
         .add_input(sw1)
         .add_input(sw2);
 
-        let (_stream, stream_handle) = OutputStream::try_default().unwrap();
-        let sink = Sink::try_new(&stream_handle).unwrap();
-
-        const DURATION_SECS: f32 = 5.0;
-        const NUM_SAMPLES: usize = (DURATION_SECS * 44100.0) as usize;
-
         let buf = vec![0.0; NUM_SAMPLES]
             .into_boxed_slice();
         let mut buf = unsafe { Box::from_raw(Box::into_raw(buf) as *mut [f32; NUM_SAMPLES]) };
+
         let w = Watcher::on(&mut mixer);
         let mut audio = Audiograph::new(44100.0, w);
         audio.stream_into(&mut buf, true);
-
-        play_sound(&sink, buf.to_vec());
     }
 
     #[test]
@@ -106,12 +98,6 @@ mod tests {
         .add_input(sw1)
         .add_input(sw2);
 
-        let (_stream, stream_handle) = OutputStream::try_default().unwrap();
-        let sink = Sink::try_new(&stream_handle).unwrap();
-
-        const DURATION_SECS: f32 = 5.0;
-        const NUM_SAMPLES: usize = (DURATION_SECS * 44100.0) as usize;
-
         let buf = vec![0.0; NUM_SAMPLES]
             .into_boxed_slice();
         let mut buf = unsafe { Box::from_raw(Box::into_raw(buf) as *mut [f32; NUM_SAMPLES]) };
@@ -122,7 +108,7 @@ mod tests {
 
         for i in 0..5 {
             // create the event on a node
-            let event = Event::new(
+            let event = Event::update_params(
                 |f: &mut SineWave| {
                     f.params.freq *= 1.1;
                 },
@@ -135,8 +121,6 @@ mod tests {
         }
 
         audio.stream_into(&mut buf, true);
-
-        play_sound(&sink, buf.to_vec());
     }
 
     #[test]
@@ -159,9 +143,6 @@ mod tests {
         let (_stream, stream_handle) = OutputStream::try_default().unwrap();
         let sink = Sink::try_new(&stream_handle).unwrap();
 
-        const DURATION_SECS: f32 = 5.0;
-        const NUM_SAMPLES: usize = (DURATION_SECS * 44100.0) as usize;
-
         let buf = vec![0.0; NUM_SAMPLES]
             .into_boxed_slice();
         let mut buf = unsafe { Box::from_raw(Box::into_raw(buf) as *mut [f32; NUM_SAMPLES]) };
@@ -172,7 +153,7 @@ mod tests {
 
         for i in 0..5 {
             // create the event on a node
-            let event = Event::new(
+            let event = Event::update_params(
                 |f: &mut SineWave| {
                     f.params.freq *= 1.1;
                 },
@@ -181,6 +162,52 @@ mod tests {
             );
             assert!(audio.register_event("sw1", event.clone()));
         }
+
+        audio.stream_into(&mut buf, true);
+
+        play_sound(&sink, buf.to_vec());
+    }
+
+    #[test]
+    fn note_on() {
+        let lfo = Node::new(
+            "lfo",
+            SineWave::new(1.0, 10.0)
+        );
+        let sw1 = Node::new(
+            "sw1",
+            SineWave::new(1.0, 1200.0)
+        );
+        let mut mult = Node::new(
+            "multiplier",
+            Multiplier
+        )
+        .add_input(lfo)
+        .add_input(sw1);
+
+        let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+        let sink = Sink::try_new(&stream_handle).unwrap();
+
+        let buf = vec![0.0; NUM_SAMPLES]
+            .into_boxed_slice();
+        let mut buf = unsafe { Box::from_raw(Box::into_raw(buf) as *mut [f32; NUM_SAMPLES]) };
+        let w = Watcher::on(&mut mult);
+
+        let sampling_rate = 44100.0;
+        let mut audio = Audiograph::new(sampling_rate, w);
+
+        // create the event on a node
+        let e1 = Event::<_, SineWave>::note_off(
+            std::time::Duration::new(1, 0),
+            audio.get_sampling_rate()
+        );
+        assert!(audio.register_event("sw1", e1));
+        
+        let e2 = Event::<_, SineWave>::note_on(
+            std::time::Duration::new(2, 0),
+            audio.get_sampling_rate()
+        );
+        assert!(audio.register_event("sw1", e2));
 
         audio.stream_into(&mut buf, true);
 
@@ -203,9 +230,6 @@ mod tests {
         )
         .add_input(sw1)
         .add_input(sw2);
-
-        const DURATION_SECS: f32 = 5.0;
-        const NUM_SAMPLES: usize = (DURATION_SECS * 44100.0) as usize;
 
         let buf = vec![0.0; NUM_SAMPLES]
             .into_boxed_slice();

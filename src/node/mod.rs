@@ -6,9 +6,9 @@ where
     S: rodio::Sample + Send + 'static,
     F: Process<S> + Clone + 'static,
 {
-    pub f: F, // process task
+    pub f: F, // Process
     name: &'static str,
-    on: bool, // process on
+    pub on: bool, // process on
 
     events: Vec< Event< S, F > >,
 
@@ -112,7 +112,11 @@ where
                 event.play_on(self);
             }
 
-            buf[idx_sample] = self.f.process_next_value(&input);
+            buf[idx_sample] = if self.on {
+                self.f.process_next_value(&input)
+            } else {
+                S::zero_value()
+            };
 
             input.clear();
         }
