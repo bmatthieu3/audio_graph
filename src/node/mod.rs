@@ -6,7 +6,7 @@ where
     S: rodio::Sample + Send + 'static,
     F: Process<S> + Clone + 'static,
 {
-    name: &'static str,
+    pub name: &'static str,
     pub f: F,     // Process
     pub on: bool, // process on
 
@@ -66,7 +66,7 @@ where
 use std::collections::HashSet;
 // The Node trait responsible for retrieving
 use std::any::Any;
-pub(crate) trait NodeTrait<S, const N: usize>: Iterator<Item = S> + Send
+pub trait NodeTrait<S, const N: usize>: Iterator<Item = S> + Send
 where
     S: rodio::Sample + Send + 'static,
 {
@@ -80,6 +80,12 @@ where
     ) -> bool;
     fn delete_parents_hierarchy(&mut self, nodes_to_remove: &mut HashSet<&'static str>);
 
+    fn add_input_trait_object(
+        &mut self,
+        name: &'static str,
+        input: Arc<Mutex<dyn NodeTrait<S, N>>>,
+    );
+    fn get_name(&self) -> &'static str;
     fn as_mut_any(&mut self) -> &mut dyn Any;
 }
 
@@ -92,6 +98,8 @@ where
         let num_parents = self.parents.len();
         let mut data = Vec::with_capacity(num_parents);
 
+        // 1. run the parents nodes first
+        // todo! Handle events that adds a node at runtime!
         if num_parents > 0 {
             if multithreading {
                 let (tx, rx) = std::sync::mpsc::channel();
@@ -201,6 +209,18 @@ where
             // Then remove it in the hierarchy
             false
         });
+    }
+
+    fn add_input_trait_object(
+        &mut self,
+        name: &'static str,
+        input: Arc<Mutex<dyn NodeTrait<S, N>>>,
+    ) {
+        self.parents.insert(name, input);
+    }
+
+    fn get_name(&self) -> &'static str {
+        &self.name
     }
 
     fn as_mut_any(&mut self) -> &mut dyn Any {

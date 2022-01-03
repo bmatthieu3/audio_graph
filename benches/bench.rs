@@ -1,7 +1,7 @@
 use audio_graph::{Audiograph, Node, Watcher};
 use criterion::{criterion_group, criterion_main, Criterion};
 
-use audio_graph::node::{Mixer, SineWave};
+use audio_graph::{Mixer, SineWave};
 
 const DURATION_SECS: f32 = 100.0;
 const NUM_SAMPLES: usize = (DURATION_SECS * 44100.0) as usize;

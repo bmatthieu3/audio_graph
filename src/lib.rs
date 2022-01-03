@@ -4,11 +4,12 @@
 //! Features:
 //! - Provide traits for the user to implement its own nodes (through the trait Process, and Params)
 //! - Use of generics to be compatible with rodio Sample trait
-//! - parallel streaming into a buffer of size N
+//! - Parallel streaming into a buffer of size N
+//! - Events handling and triggered at a specific sample indices (add new node/delete nodes are not implemented)
 
-/* --------------------------------------------------------- */
-pub mod node;
+mod node;
 pub use node::Node;
+pub use node::{Mixer, Multiplier, SineWave};
 
 mod sampling;
 
@@ -33,7 +34,7 @@ mod tests {
         unsafe { Box::from_raw(Box::into_raw(buf) as *mut [f32; N]) }
     }
 
-    fn play_sound(buf: Box<[f32; NUM_SAMPLES]>) {
+    fn play_sound<const N: usize>(buf: Box<[f32; N]>) {
         let (_stream, stream_handle) = OutputStream::try_default().unwrap();
         let sink = Sink::try_new(&stream_handle).unwrap();
 
@@ -53,6 +54,15 @@ mod tests {
         let w = Watcher::on(sw1);
         let mut audio = Audiograph::new(44100.0, w);
         audio.stream_into(&mut buf, true);
+    }
+
+    #[test]
+    fn audio_graph_as_iterator() {
+        let sw1 = Node::<_, _, NUM_SAMPLES>::new("sinewave", SineWave::new(0.1, 2500.0));
+
+        let w = Watcher::on(sw1);
+        let audio = Audiograph::new(44100.0, w);
+        let _buf = audio.take(40000).collect::<Vec<_>>();
     }
 
     #[test]
@@ -92,6 +102,48 @@ mod tests {
     }
 
     #[test]
+    fn add_input_to() {
+        let sw1 = Node::new("sw1", SineWave::new(0.1, 2500.0));
+        let mut mixer = Node::new("mixer", Mixer);
+        mixer.add_input(sw1);
+
+        let w = Watcher::on(mixer);
+        let mut audio = Audiograph::new(44100.0, w);
+
+        let sw2 = Node::new("sw2", SineWave::new(0.1, 5000.0));
+        assert!(audio.add_input_to("mixer", sw2));
+
+        let mut buf = create_empty_buffer::<NUM_SAMPLES>();
+        audio.stream_into(&mut buf, true);
+
+        //play_sound(buf);
+    }
+
+    #[test]
+    fn event_add_node() {
+        let sw1 = Node::new("sw1", SineWave::new(0.1, 2500.0));
+        let mut mixer = Node::new("mixer", Mixer);
+        mixer.add_input(sw1);
+
+        let w = Watcher::on(mixer);
+        let mut audio = Audiograph::new(44100.0, w);
+
+        let sw2 = Node::new("sw2", SineWave::new(0.1, 5000.0));
+
+        let event = Event::<f32, Mixer, NUM_SAMPLES>::add_input(
+            sw2,
+            std::time::Duration::new(2, 0),
+            &audio,
+        );
+        assert!(audio.register_event("mixer", event));
+
+        let mut buf = create_empty_buffer::<NUM_SAMPLES>();
+        audio.stream_into(&mut buf, true);
+
+        //play_sound(buf);
+    }
+
+    #[test]
     fn delete_node_from_audio_graph() {
         let sw1 = Node::new("sw1", SineWave::new(0.1, 2500.0));
         let sw2 = Node::new("sw2", SineWave::new(0.2, 9534.0));
@@ -114,7 +166,7 @@ mod tests {
         let mut buf = create_empty_buffer::<NUM_SAMPLES>();
         audio.stream_into(&mut buf, true);
 
-        play_sound(buf);
+        //play_sound(buf);
     }
 
     #[test]
@@ -139,7 +191,7 @@ mod tests {
         let mut buf = create_empty_buffer::<NUM_SAMPLES>();
         audio.stream_into(&mut buf, true);
 
-        play_sound(buf);
+        //play_sound(buf);
     }
 
     #[test]
@@ -213,7 +265,7 @@ mod tests {
         let mut buf = create_empty_buffer::<NUM_SAMPLES>();
         audio.stream_into(&mut buf, true);
 
-        play_sound(buf);
+        //play_sound(buf);
     }
 
     #[test]
@@ -239,7 +291,7 @@ mod tests {
         let mut buf = create_empty_buffer::<NUM_SAMPLES>();
         audio.stream_into(&mut buf, true);
 
-        play_sound(buf);
+        //play_sound(buf);
     }
 
     #[test]

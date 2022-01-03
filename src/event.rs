@@ -2,8 +2,8 @@ use crate::node::Process;
 use crate::sampling::SampleIdx;
 use crate::Node;
 
-//use std::sync::{Arc, Mutex};
-//use crate::node::NodeTrait;
+use crate::node::NodeTrait;
+use std::sync::{Arc, Mutex};
 pub enum Event<S, F, const N: usize>
 where
     S: rodio::Sample + Send + 'static,
@@ -17,9 +17,9 @@ where
         f: std::marker::PhantomData<F>,
     },
     AddInput {
-        // TODO: add node event
-    //sample: SampleIdx,
-    //input: Arc<Mutex<dyn NodeTrait<S, N>>>,
+        sample: SampleIdx,
+        name: &'static str,
+        input: Arc<Mutex<dyn NodeTrait<S, N>>>,
     },
     NoteOff {
         sample: SampleIdx,
@@ -63,18 +63,19 @@ where
     }
 
     pub fn add_input<F2>(
-        _node: Node<S, F2, N>,
+        node: Node<S, F2, N>,
         time: std::time::Duration,
         audio: &Audiograph<S, N>,
     ) -> Self
     where
         F2: Process<S> + Clone + 'static,
     {
-        let _idx_sample = audio.get_sampling_rate().from_time(time);
+        let idx_sample = audio.get_sampling_rate().from_time(time);
 
         Event::AddInput {
-            //sample: idx_sample,
-            //input: Arc::new(Mutex::new(node))
+            sample: idx_sample,
+            name: &node.name,
+            input: Arc::new(Mutex::new(node)),
         }
     }
 
@@ -83,8 +84,8 @@ where
             Event::UpdateParams { fu, .. } => (fu)(&mut node.f),
             Event::NoteOn { .. } => node.on = true,
             Event::NoteOff { .. } => node.on = false,
-            Event::AddInput { .. } => {
-                todo!()
+            Event::AddInput { input, name, .. } => {
+                node.add_input_trait_object(name, input);
             }
         }
     }
@@ -94,7 +95,7 @@ where
             Event::UpdateParams { sample, .. } => *sample,
             Event::NoteOff { sample } => *sample,
             Event::NoteOn { sample } => *sample,
-            Event::AddInput { .. } => todo!(),
+            Event::AddInput { sample, .. } => *sample,
         }
     }
 }
