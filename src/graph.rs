@@ -1,4 +1,4 @@
-use crate::node::{Process, Node, NodeTrait};
+use crate::node::{Node, NodeTrait, Process};
 
 use std::collections::HashMap;
 
@@ -12,10 +12,9 @@ where
     nodes: Nodes<S, N>,
 }
 
-use std::collections::HashSet;
-use std::sync::{Mutex, Arc};
+use crate::sampling::SamplingRate;
 use crate::Event;
-use crate::SamplingRate;
+use std::collections::HashSet;
 impl<S, const N: usize> Audiograph<S, N>
 where
     S: rodio::Sample + Send + 'static,
@@ -29,7 +28,7 @@ where
         Self {
             sample_rate,
             root,
-            nodes
+            nodes,
         }
     }
 
@@ -47,15 +46,13 @@ where
 
     pub fn add_input_to<F>(&mut self, name: &'static str, input: Node<S, F, N>) -> bool
     where
-        F: Process<S> + Clone + 'static 
+        F: Process<S> + Clone + 'static,
     {
         if let Some(node) = self.nodes.get_mut(name) {
             // We found a node
             let mut node = node.lock().unwrap();
 
-            if let Some(node) = node.as_mut_any()
-                .downcast_mut::<Node<S, F, N>>() {
-
+            if let Some(node) = node.as_mut_any().downcast_mut::<Node<S, F, N>>() {
                 node.add_input(input);
 
                 true
@@ -64,20 +61,18 @@ where
             }
         } else {
             false
-        } 
+        }
     }
 
     pub fn register_event<F>(&mut self, name: &'static str, event: Event<S, F, N>) -> bool
     where
-        F: Process<S> + Clone + 'static 
+        F: Process<S> + Clone + 'static,
     {
         if let Some(node) = self.nodes.get_mut(name) {
             // We found a node
             let mut node = node.lock().unwrap();
 
-            if let Some(node) = node.as_mut_any()
-                .downcast_mut::<Node<S, F, N>>() {
-
+            if let Some(node) = node.as_mut_any().downcast_mut::<Node<S, F, N>>() {
                 node.register_event(event);
 
                 true
@@ -94,9 +89,7 @@ where
 
         let node_found = self.root.delete_node(name, &mut nodes_to_remove);
 
-        self.nodes.retain(|name, parent| {
-            !nodes_to_remove.contains(name)
-        });
+        self.nodes.retain(|name, _| !nodes_to_remove.contains(name));
 
         node_found
     }
@@ -106,8 +99,24 @@ where
         self.root.stream_into(buf, multithreading);
     }
 
-    pub fn get_sampling_rate(&self) -> SamplingRate {
+    pub(crate) fn get_sampling_rate(&self) -> SamplingRate {
         self.sample_rate
+    }
+}
+
+#[derive(Clone)]
+pub struct Sentinel;
+impl<S> Process<S> for Sentinel
+where
+    S: rodio::Sample + Send + 'static,
+{
+    fn process_next_value(&mut self, inputs: &[S]) -> S {
+        if let Some(s) = inputs.first() {
+            *s
+        } else {
+            // The graph is empty => no sound for every sample
+            S::zero_value()
+        }
     }
 }
 
@@ -115,9 +124,8 @@ pub struct Watcher<S, const N: usize>
 where
     S: rodio::Sample + Send + 'static,
 {
-    root: Node<S, Sentinel, N>
+    root: Node<S, Sentinel, N>,
 }
-
 
 impl<S, const N: usize> Watcher<S, N>
 where
@@ -130,14 +138,11 @@ where
         let mut sentinel = Node::new("root", Sentinel);
         sentinel.add_input(node);
 
-        Self {
-            root: sentinel
-        }
+        Self { root: sentinel }
     }
 }
 
-use crate::node::Sentinel;
-use std::ops::{DerefMut, Deref};
+use std::ops::{Deref, DerefMut};
 impl<S, const N: usize> Deref for Watcher<S, N>
 where
     S: rodio::Sample + Send + 'static,

@@ -14,10 +14,7 @@ impl SineWave {
     pub fn new(ampl: f32, freq: f32) -> Self {
         let params = SineWaveParams { ampl, freq };
         let step = 0;
-        Self {
-            params,
-            step,
-        }
+        Self { params, step }
     }
 }
 
