@@ -27,8 +27,7 @@ mod tests {
     use super::{Audiograph, Event, Node, Watcher};
     use rodio::{OutputStream, Sink};
 
-    const DURATION_SECS: f32 = 5.0;
-    const NUM_SAMPLES: usize = (DURATION_SECS * 44100.0) as usize;
+    const NUM_SAMPLES: usize = 64;
 
     fn create_empty_buffer<const N: usize>() -> Box<[f32; N]> {
         let buf = vec![0.0; N].into_boxed_slice();
