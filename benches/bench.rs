@@ -3,8 +3,7 @@ use criterion::{criterion_group, criterion_main, Criterion};
 
 use audio_graph::{Mixer, SineWave};
 
-const DURATION_SECS: f32 = 100.0;
-const NUM_SAMPLES: usize = (DURATION_SECS * 44100.0) as usize;
+const NUM_SAMPLES: usize = 64;
 
 fn create_empty_buffer<const N: usize>() -> Box<[f32; N]> {
     let buf = vec![0.0; N].into_boxed_slice();
@@ -25,6 +24,9 @@ fn criterion_benchmark(c: &mut Criterion) {
     });
     c.bench_function("mixer_sequential", |b| {
         b.iter(|| audio.stream_into(&mut buf, false))
+    });
+    c.bench_function("mixer_parallel_rtrb", |b| {
+        b.iter(|| audio.stream_into_rtrb(true))
     });
 }
 

@@ -50,4 +50,3 @@ cargo bench
 ```
 
 parallelism / sequential comparisons
-

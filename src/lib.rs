@@ -6,6 +6,7 @@
 //! - Use of generics to be compatible with rodio Sample trait
 //! - Parallel streaming into a buffer of size N
 //! - Events handling and triggered at a specific sample indices (add new node/delete nodes are not implemented)
+extern crate rtrb;
 
 mod node;
 pub use node::Node;

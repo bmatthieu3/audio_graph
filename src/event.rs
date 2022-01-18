@@ -6,7 +6,7 @@ use crate::node::NodeTrait;
 use std::sync::{Arc, Mutex};
 pub enum Event<S, F, const N: usize>
 where
-    S: rodio::Sample + Send + 'static,
+    S: rodio::Sample + Send + Sync + 'static,
     F: Process<S> + Clone + 'static,
 {
     UpdateParams {
@@ -32,7 +32,7 @@ where
 use crate::Audiograph;
 impl<S, F, const N: usize> Event<S, F, N>
 where
-    S: rodio::Sample + Send + 'static,
+    S: rodio::Sample + Send + Sync + 'static,
     F: Process<S> + Clone + 'static,
 {
     pub fn update_params(
@@ -84,9 +84,10 @@ where
             Event::UpdateParams { fu, .. } => (fu)(&mut node.f),
             Event::NoteOn { .. } => node.on = true,
             Event::NoteOff { .. } => node.on = false,
-            Event::AddInput { input, name, .. } => {
+            _ => ()
+            /*Event::AddInput { input, name, .. } => {
                 node.add_input_trait_object(name, input);
-            }
+            }*/
         }
     }
 
@@ -102,7 +103,7 @@ where
 
 impl<S, F, const N: usize> PartialEq for Event<S, F, N>
 where
-    S: rodio::Sample + Send + 'static,
+S: rodio::Sample + Send + Sync + 'static,
     F: Process<S> + Clone + 'static,
 {
     fn eq(&self, other: &Self) -> bool {
@@ -112,14 +113,14 @@ where
 
 impl<S, F, const N: usize> Eq for Event<S, F, N>
 where
-    S: rodio::Sample + Send + 'static,
+    S: rodio::Sample + Send + Sync + 'static,
     F: Process<S> + Clone + 'static,
 {
 }
 
 impl<S, F, const N: usize> PartialOrd for Event<S, F, N>
 where
-    S: rodio::Sample + Send + 'static,
+    S: rodio::Sample + Send + Sync + 'static,
     F: Process<S> + Clone + 'static,
 {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
@@ -132,7 +133,7 @@ where
 use std::cmp::Ordering;
 impl<S, F, const N: usize> Ord for Event<S, F, N>
 where
-    S: rodio::Sample + Send + 'static,
+    S: rodio::Sample + Send + Sync + 'static,
     F: Process<S> + Clone + 'static,
 {
     fn cmp(&self, other: &Self) -> Ordering {

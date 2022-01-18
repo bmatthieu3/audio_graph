@@ -5,12 +5,16 @@ use std::collections::HashMap;
 use crate::node::Nodes;
 pub struct Audiograph<S, const N: usize>
 where
-    S: rodio::Sample + Send + 'static,
+    S: rodio::Sample + Send + Sync + 'static,
 {
     root: Watcher<S, N>,
     sample_rate: SamplingRate,
     nodes: Nodes<S, N>,
+
+    pool: rayon::ThreadPool,
 }
+
+const NUM_WORKERS: usize = 4;
 
 use crate::sampling::SamplingRate;
 use crate::Event;
@@ -18,7 +22,7 @@ use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 impl<S, const N: usize> Audiograph<S, N>
 where
-    S: rodio::Sample + Send + 'static,
+    S: rodio::Sample + Send + Sync + 'static,
 {
     /// Crate a new audio graph
     ///
@@ -44,10 +48,16 @@ where
         let mut nodes = HashMap::new();
         root.collect_nodes(&mut nodes);
 
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(NUM_WORKERS)
+            .build()
+            .unwrap();
+
         Self {
             sample_rate,
             root,
             nodes,
+            pool,
         }
     }
 
@@ -199,6 +209,10 @@ where
         self.root.stream_into(buf, multithreading);
     }
 
+    pub fn stream_into_rtrb(&mut self, multithreading: bool) {
+        self.root.stream_into_rtrb(multithreading);
+    }
+
     pub(crate) fn get_sampling_rate(&self) -> SamplingRate {
         self.sample_rate
     }
@@ -208,7 +222,7 @@ where
 pub struct Sentinel;
 impl<S> Process<S> for Sentinel
 where
-    S: rodio::Sample + Send + 'static,
+    S: rodio::Sample + Send + Sync + 'static,
 {
     fn process_next_value(&mut self, inputs: &[S]) -> S {
         if let Some(s) = inputs.first() {
@@ -222,14 +236,14 @@ where
 
 pub struct Watcher<S, const N: usize>
 where
-    S: rodio::Sample + Send + 'static,
+    S: rodio::Sample + Send + Sync + 'static,
 {
     root: Node<S, Sentinel, N>,
 }
 
 impl<S, const N: usize> Watcher<S, N>
 where
-    S: rodio::Sample + Send + 'static,
+    S: rodio::Sample + Send + Sync + 'static,
 {
     pub fn on<F>(node: Node<S, F, N>) -> Self
     where
@@ -245,7 +259,7 @@ where
 use std::ops::{Deref, DerefMut};
 impl<S, const N: usize> Deref for Watcher<S, N>
 where
-    S: rodio::Sample + Send + 'static,
+    S: rodio::Sample + Send + Sync + 'static,
 {
     type Target = Node<S, Sentinel, N>;
 
@@ -255,7 +269,7 @@ where
 }
 impl<S, const N: usize> DerefMut for Watcher<S, N>
 where
-    S: rodio::Sample + Send + 'static,
+    S: rodio::Sample + Send + Sync + 'static,
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.root
@@ -264,7 +278,7 @@ where
 
 impl<S, const N: usize> Iterator for Audiograph<S, N>
 where
-    S: rodio::Sample + Send + 'static,
+    S: rodio::Sample + Send + Sync + 'static,
 {
     type Item = S;
 

@@ -1,11 +1,16 @@
 use std::collections::HashMap;
 use std::marker::Send;
 use std::sync::{Arc, Mutex};
+const MAX_NODE_INPUTS: usize = 8;
+
+use rtrb::RingBuffer;
+
 pub struct Node<S, F, const N: usize>
 where
-    S: rodio::Sample + Send + 'static,
+    S: rodio::Sample + Send + Sync + 'static,
     F: Process<S> + Clone + 'static,
 {
+    buf: [S; N],
     pub name: &'static str,
     pub f: F,     // Process
     pub on: bool, // process on
@@ -20,19 +25,20 @@ use crate::Event;
 
 // Utilitary method to convert an allocated array on the heap
 // to a sized boxed slice
-unsafe fn vec_to_slice<S, const N: usize>(input: Vec<S>) -> Box<[S; N]> {
+unsafe fn vec_to_boxed_slice<T, const N: usize>(input: Vec<T>) -> Box<[T; N]> {
     let input = input.into_boxed_slice();
-    Box::from_raw(Box::into_raw(input) as *mut [S; N])
+    Box::from_raw(Box::into_raw(input) as *mut [T; N])
 }
 
 use crate::sampling::SampleIdx;
 impl<S, F, const N: usize> Node<S, F, N>
 where
-    S: rodio::Sample + Send + 'static,
+    S: rodio::Sample + Send + Sync + 'static,
     F: Process<S> + Clone + 'static,
 {
     pub fn new(name: &'static str, f: F) -> Self {
         Self {
+            buf: [S::zero_value(); N],
             f: f,
             on: true,
             name: name,
@@ -68,9 +74,11 @@ use std::collections::HashSet;
 use std::any::Any;
 pub trait NodeTrait<S, const N: usize>: Iterator<Item = S> + Send
 where
-    S: rodio::Sample + Send + 'static,
+    S: rodio::Sample + Send + Sync + 'static,
 {
     fn stream_into(&mut self, buf: &mut Box<[S; N]>, multithreading: bool);
+    fn stream_into_rtrb(&mut self, multithreading: bool);
+
     fn collect_nodes(&self, nodes: &mut Nodes<S, N>);
 
     fn delete_node(
@@ -87,13 +95,44 @@ where
     );
     fn get_name(&self) -> &'static str;
     fn as_mut_any(&mut self) -> &mut dyn Any;
+
+    fn get_buf(&self) -> &[S; N];
+}
+
+use std::cell::UnsafeCell;
+
+#[derive(Copy, Clone)]
+pub struct UnsafeSlice<'a, T> {
+    slice: &'a [UnsafeCell<T>],
+}
+unsafe impl<'a, T: Send + Sync> Send for UnsafeSlice<'a, T> {}
+unsafe impl<'a, T: Send + Sync> Sync for UnsafeSlice<'a, T> {}
+
+impl<'a, T> UnsafeSlice<'a, T> {
+    pub fn new(slice: &'a mut [T]) -> Self {
+        let ptr = slice as *mut [T] as *const [UnsafeCell<T>];
+        Self {
+            slice: unsafe { &*ptr },
+        }
+    }
+    
+    /// SAFETY: It is UB if two threads write to the same index without
+    /// synchronization.
+    pub unsafe fn write(&self, i: usize, value: T) {
+        let ptr = self.slice[i].get();
+        *ptr = value;
+    }
 }
 
 impl<S, F, const N: usize> NodeTrait<S, N> for Node<S, F, N>
 where
-    S: rodio::Sample + Send + 'static,
+    S: rodio::Sample + Send + Sync + 'static,
     F: Process<S> + Clone,
 {
+    fn get_buf(&self) -> &[S; N] {
+        &self.buf
+    }
+
     fn stream_into(&mut self, buf: &mut Box<[S; N]>, multithreading: bool) {
         let num_parents = self.parents.len();
         let mut data = Vec::with_capacity(num_parents);
@@ -109,7 +148,7 @@ where
                     let tx = tx.clone();
                     std::thread::spawn(move || {
                         // Create a buffer on the thread
-                        let mut buffer = unsafe { vec_to_slice(vec![S::zero_value(); N]) };
+                        let mut buffer = unsafe { vec_to_boxed_slice(vec![S::zero_value(); N]) };
 
                         // Stream into it
                         parent.lock().unwrap().stream_into(&mut buffer, true);
@@ -124,7 +163,7 @@ where
                     data.push(buffer);
                 }
             } else {
-                let mut buffer = unsafe { vec_to_slice(vec![S::zero_value(); N]) };
+                let mut buffer = unsafe { vec_to_boxed_slice(vec![S::zero_value(); N]) };
 
                 for parent in self.parents.values_mut() {
                     parent.lock().unwrap().stream_into(&mut buffer, false);
@@ -155,6 +194,73 @@ where
             };
 
             input.clear();
+        }
+    }
+
+    fn stream_into_rtrb(
+        &mut self,
+        multithreading: bool,
+        //pool: &rayon::ThreadPool
+    ) {
+        let num_inputs = self.parents.len();
+        let mut data = unsafe { vec_to_boxed_slice::<_, MAX_NODE_INPUTS>(
+            vec![
+                [S::zero_value(); N]; MAX_NODE_INPUTS
+            ])
+        };
+        // 1. run the parents nodes first
+        // todo! Handle events that adds a node at runtime!
+        if num_inputs > 0 {
+            if multithreading {
+                //let mut consumers = vec![];
+                let mut data_slice = UnsafeSlice::new(&mut data[..]);
+
+                rayon::scope(|s| {
+                    for parent in self.parents.values_mut() {
+                        let parent = parent.clone();
+
+                        //consumers.push(c);
+                        s.spawn(move |_| {
+                            let mut input = parent.lock().unwrap();
+                            // Stream into it
+                            input.stream_into_rtrb(true);
+                            let idx = rayon::current_thread_index().unwrap();
+                            // Send the processed data to the calling thread (receiver)
+                            unsafe { data_slice.write(idx, *input.get_buf()); }
+                        });
+                    }
+                });
+            } else {
+                let mut i = 0;
+                for parent in self.parents.values_mut() {
+                    if let Ok(mut parent) = parent.lock() {
+                        parent.stream_into_rtrb(false);
+                        data[i] = *parent.get_buf();
+                        i += 1;
+                    }
+                }
+            }
+        }
+
+        let mut input = [S::zero_value(); MAX_NODE_INPUTS];
+        for idx_sample in 0..N {
+            for idx_input in 0..num_inputs {
+                input[idx_input] = data[idx_input][idx_sample];
+            }
+
+            // As events is sorted by decreasing sample indices, we can only check the last event to be played
+            /*while !self.events.is_empty()
+                && self.events.last().unwrap().get_sample_idx() <= SampleIdx(idx_sample)
+            {
+                let event = self.events.pop().unwrap();
+                event.play_on(self);
+            }*/
+
+            self.buf[idx_sample] = if self.on {
+                self.f.process_next_value(&input[..num_inputs])
+            } else {
+                S::zero_value()
+            };
         }
     }
 
@@ -230,7 +336,7 @@ where
 
 impl<S, F, const N: usize> Iterator for Node<S, F, N>
 where
-    S: rodio::Sample + Send + 'static,
+    S: rodio::Sample + Send + Sync + 'static,
     F: Process<S> + Clone,
 {
     type Item = S;
